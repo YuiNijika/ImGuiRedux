@@ -13,31 +13,53 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+// Configuration for custom font support
+static bool g_EnableCustomFont = true;
+
 static const ImWchar* GetGlyphRanges() {
-    static const ImWchar ranges[] = {
-        0x0020, 0x00FF, // Basic Latin + Latin Supplement
-        0x0980, 0x09FF, // Bengali
-        0x2000, 0x206F, // General Punctuation
+    if (g_EnableCustomFont) {
+        static const ImWchar ranges[] = {
+            0x0020, 0x00FF, // Basic Latin + Latin Supplement
+            0x0980, 0x09FF, // Bengali
+            0x2000, 0x206F, // General Punctuation
 
-        // Chinease
-        // 0x3000, 0x30FF, // CJK Symbols and Punctuations, Hiragana, Katakana
-        // 0x31F0, 0x31FF, // Katakana Phonetic Extensions
-        // 0xFF00, 0xFFEF, // Half-width characters
-        // 0xFFFD, 0xFFFD, // Invalid
-        // 0x4E00, 0x9FAF, // CJK Ideograms
+            // Chinese
+            0x3000, 0x30FF, // CJK Symbols and Punctuations, Hiragana, Katakana
+            0x31F0, 0x31FF, // Katakana Phonetic Extensions
+            0xFF00, 0xFFEF, // Half-width characters
+            0x4E00, 0x9FAF, // CJK Ideograms
 
-        // Cyrillic
-        0x0400, 0x052F, // Cyrillic + Cyrillic Supplement
-        0x2DE0, 0x2DFF, // Cyrillic Extended-A
-        0xA640, 0xA69F, // Cyrillic Extended-B
+            // Cyrillic
+            0x0400, 0x052F, // Cyrillic + Cyrillic Supplement
+            0x2DE0, 0x2DFF, // Cyrillic Extended-A
+            0xA640, 0xA69F, // Cyrillic Extended-B
 
-        //Turkish
-        0x011E, 0x011F,
-        0x015E, 0x015F,
-        0x0130, 0x0131,
-        0,
-    };
-    return &ranges[0];
+            //Turkish
+            0x011E, 0x011F,
+            0x015E, 0x015F,
+            0x0130, 0x0131,
+            0,
+        };
+        return &ranges[0];
+    } else {
+        static const ImWchar ranges[] = {
+            0x0020, 0x00FF, // Basic Latin + Latin Supplement
+            0x0980, 0x09FF, // Bengali
+            0x2000, 0x206F, // General Punctuation
+
+            // Cyrillic
+            0x0400, 0x052F, // Cyrillic + Cyrillic Supplement
+            0x2DE0, 0x2DFF, // Cyrillic Extended-A
+            0xA640, 0xA69F, // Cyrillic Extended-B
+
+            //Turkish
+            0x011E, 0x011F,
+            0x015E, 0x015F,
+            0x0130, 0x0131,
+            0,
+        };
+        return &ranges[0];
+    }
 }
 
 bool Hook::GetMouseState() {
@@ -609,4 +631,102 @@ ImGuiKey VirtualKeyToImGuiKey(int vk) {
 
         default: return ImGuiKey_None;
     }
+}
+
+// Font management functions implementation
+void Hook::SetCustomFontEnabled(bool enabled) {
+    g_EnableCustomFont = enabled;
+    // Force font reload on next frame
+    static ImVec2 fScreenSize = ImVec2(-1, -1);
+    fScreenSize = ImVec2(-1, -1);
+}
+
+bool Hook::IsCustomFontEnabled() {
+    return g_EnableCustomFont;
+}
+
+bool Hook::LoadCustomFont(const char* fontPath, float fontSize) {
+    if (!m_bInitialized) {
+        return false;
+    }
+    
+    // 检查字体路径是否为空
+    if (!fontPath || strlen(fontPath) == 0) {
+        return false;
+    }
+    
+    // 检查文件是否存在
+    HANDLE hFile = CreateFileA(fontPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    
+    // 检查文件大小，避免加载过大的字体文件（超过10MB拒绝加载）
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile, &fileSize)) {
+        CloseHandle(hFile);
+        return false;
+    }
+    
+    const LONGLONG MAX_FONT_SIZE = 10 * 1024 * 1024; // 10MB
+    if (fileSize.QuadPart > MAX_FONT_SIZE) {
+        CloseHandle(hFile);
+        return false;
+    }
+    
+    CloseHandle(hFile);
+    
+    // 检查字体大小参数
+    if (fontSize <= 0.0f || fontSize > 100.0f) {
+        return false;
+    }
+    
+    ImGuiIO& io = ImGui::GetIO();
+    
+    // 使用 try-catch 包装字体加载，防止断言失败
+    ImFont* font = nullptr;
+    try {
+        // 清除之前的字体
+        io.Fonts->Clear();
+        
+        // 尝试加载自定义字体
+        font = io.Fonts->AddFontFromFileTTF(fontPath, fontSize, NULL, GetGlyphRanges());
+        
+        // 如果加载失败，添加默认字体作为备选
+        if (font == nullptr) {
+            font = io.Fonts->AddFontDefault();
+        }
+        
+        // 构建字体图集
+        if (!io.Fonts->Build()) {
+            return false;
+        }
+        
+    } catch (...) {
+        // 如果发生任何异常，使用默认字体
+        io.Fonts->Clear();
+        font = io.Fonts->AddFontDefault();
+        io.Fonts->Build();
+    }
+    
+    // 验证字体是否成功加载
+    if (font == nullptr) {
+        return false;
+    }
+    
+    // 设置为默认字体
+    io.FontDefault = font;
+    
+    // 使 device objects 失效以强制重建
+    try {
+        if (gRenderer == eRenderer::Dx9) {
+            ImGui_ImplDX9_InvalidateDeviceObjects();
+        } else if (gRenderer == eRenderer::Dx11) {
+            ImGui_ImplDX11_InvalidateDeviceObjects();
+        }
+    } catch (...) {
+        // 忽略设备对象失效时的异常
+    }
+    
+    return true;
 }
