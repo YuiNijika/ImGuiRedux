@@ -1358,6 +1358,32 @@ static RTN_TYPE RUNTIME_API ImGuiTabs(RUNTIME_CONTEXT ctx) {
     return RTN_CONTINUE;
 }
 
+// Chinese Font Support JavaScript Bindings
+static RTN_TYPE RUNTIME_API ImGuiSetChineseSupportEnabled(RUNTIME_CONTEXT ctx) {
+    bool enabled = wGetBoolParam(ctx);
+    Hook::SetChineseSupportEnabled(enabled);
+    return RTN_CONTINUE;
+}
+
+static RTN_TYPE RUNTIME_API ImGuiIsChineseSupportEnabled(RUNTIME_CONTEXT ctx) {
+    bool enabled = Hook::IsChineseSupportEnabled();
+    wUpdateCompareFlag(ctx, enabled);
+    return RTN_CONTINUE;
+}
+
+static RTN_TYPE RUNTIME_API ImGuiLoadCustomFont(RUNTIME_CONTEXT ctx) {
+    char fullPath[RUNTIME_STR_LEN*2], fontPath[RUNTIME_STR_LEN];
+    wGetStringParam(ctx, fontPath, RUNTIME_STR_LEN);
+    float fontSize = wGetFloatParam(ctx);
+    
+    // 使用 wResolvePath 解析路径，就像 ImGuiLoadImage 一样
+    wResolvePath(ctx, fontPath, fullPath, sizeof(fullPath));
+    
+    bool success = Hook::LoadCustomFont(fullPath, fontSize);
+    wUpdateCompareFlag(ctx, success);
+    return RTN_CONTINUE;
+}
+
 void OpcodeMgr::RegisterCommands() {
 
     // Note: Calling order can't be changed!
@@ -1463,4 +1489,9 @@ void OpcodeMgr::RegisterCommands() {
     wRegisterCommand("IMGUI_END_DISABLED", ImGuiEndDisabled);
     wRegisterCommand("IMGUI_BEGIN_MENU", ImGuiBeginMenu);
     wRegisterCommand("IMGUI_END_MENU", ImGuiEndMenu);
+
+    // Chinese Font Support Commands
+    wRegisterCommand("IMGUI_SET_CHINESE_SUPPORT_ENABLED", ImGuiSetChineseSupportEnabled);
+    wRegisterCommand("IMGUI_IS_CHINESE_SUPPORT_ENABLED", ImGuiIsChineseSupportEnabled);
+    wRegisterCommand("IMGUI_LOAD_CUSTOM_FONT", ImGuiLoadCustomFont);
 }
